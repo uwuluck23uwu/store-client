@@ -1,0 +1,1 @@
+export { LocationDetailModal } from "./LocationDetailModal";
