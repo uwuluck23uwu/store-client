@@ -8,15 +8,17 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
 } from "react-native";
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
-import { useAuth } from "../../hooks/useAuth";
 import { RootState } from "../../store/store";
 import { useCreateOrderMutation } from "../../api/orderApi";
 import { clearCart } from "../../store/slices/cartSlice";
-import { useGetSellerByIdQuery } from "../../api/sellerApi";
 import { CartItem } from "../../types/api.types";
+import { API_BASE_URL } from "../../api/baseApi";
+import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library";
 
 interface SellerGroup {
   sellerId: number;
@@ -28,15 +30,64 @@ interface SellerGroup {
 const CheckoutScreen = ({ navigation }: any) => {
   const dispatch = useDispatch();
   const { items, totalAmount } = useSelector((state: RootState) => state.cart);
-  const [selectedPayment, setSelectedPayment] = useState<{[sellerId: number]: string}>({});
+  const [selectedPayment, setSelectedPayment] = useState<string>("");
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [isQrCodeLoading, setIsQrCodeLoading] = useState<boolean>(false);
 
   // Create order mutation
   const [createOrder, { isLoading }] = useCreateOrderMutation();
 
-  const shippingFee = 50;
-  const finalTotal = totalAmount + shippingFee;
+  const finalTotal = totalAmount;
 
-  // Group items by seller
+  useEffect(() => {
+    if (selectedPayment === "Transfer" && finalTotal > 0) {
+      const fetchQrCode = async () => {
+        setIsQrCodeLoading(true);
+        setQrCodeUrl(null);
+        try {
+          // Append a timestamp to prevent caching
+          const url = `${API_BASE_URL}/api/payment/qrcode?amount=${finalTotal}&t=${new Date().getTime()}`;
+          setQrCodeUrl(url);
+        } catch (error) {
+          Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถโหลด QR Code ได้ กรุณาลองใหม่อีกครั้ง");
+          console.error("Failed to fetch QR code:", error);
+        } finally {
+          setIsQrCodeLoading(false);
+        }
+      };
+
+      fetchQrCode();
+    } else {
+      setQrCodeUrl(null);
+    }
+  }, [selectedPayment, finalTotal]);
+
+  const handleDownloadQrCode = async () => {
+    if (!qrCodeUrl) return;
+
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      if (status !== "granted") {
+        Alert.alert(
+          "ต้องการสิทธิ์การเข้าถึง",
+          "กรุณาอนุญาตให้แอปเข้าถึงคลังรูปภาพเพื่อบันทึกรูปภาพ"
+        );
+        return;
+      }
+
+      const fileUri =
+        (FileSystem as any).cacheDirectory + `qrcode_${Date.now()}.png`;
+      const { uri } = await FileSystem.downloadAsync(qrCodeUrl, fileUri);
+
+      await MediaLibrary.createAssetAsync(uri);
+      Alert.alert("สำเร็จ", "บันทึก QR Code ลงในคลังรูปภาพของคุณแล้ว");
+    } catch (error) {
+      console.error("Failed to download QR code:", error);
+      Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึก QR Code ได้ กรุณาลองใหม่อีกครั้ง");
+    }
+  };
+
+  // Group items by seller for display
   const sellerGroups: SellerGroup[] = React.useMemo(() => {
     const grouped = items.reduce((acc, item) => {
       const sellerId = item.sellerId || 0;
@@ -57,21 +108,13 @@ const CheckoutScreen = ({ navigation }: any) => {
   }, [items]);
 
   const handlePlaceOrder = async () => {
-    // Check if all sellers have payment method selected
-    const missingPayment = sellerGroups.some(
-      (group) => !selectedPayment[group.sellerId]
-    );
-
-    if (missingPayment) {
+    if (!selectedPayment) {
       Alert.alert(
         "กรุณาเลือกวิธีชำระเงิน",
-        "กรุณาเลือกวิธีการชำระเงินสำหรับทุกร้านค้า"
+        "กรุณาเลือกวิธีการชำระเงินก่อนทำการสั่งซื้อ"
       );
       return;
     }
-
-    // Get the first payment method (or you can implement logic to handle multiple)
-    const firstPaymentMethod = Object.values(selectedPayment)[0] || "Cash";
 
     Alert.alert(
       "ยืนยันการสั่งซื้อ",
@@ -84,10 +127,15 @@ const CheckoutScreen = ({ navigation }: any) => {
           text: "ยืนยัน",
           onPress: async () => {
             try {
+              const orderItems = items.map((item) => ({
+                productId: item.productId,
+                quantity: item.quantity,
+              }));
+
               const result = await createOrder({
-                addressId: 1, // TODO: ใช้ address ที่เลือก
-                paymentMethod: firstPaymentMethod,
+                paymentMethod: selectedPayment,
                 notes: "",
+                items: orderItems,
               }).unwrap();
 
               if (result.isSuccess) {
@@ -113,9 +161,14 @@ const CheckoutScreen = ({ navigation }: any) => {
                 Alert.alert("ไม่สำเร็จ", result.message);
               }
             } catch (error: any) {
+              console.error("Order creation failed:", error);
+              const errorMessage =
+                error.data?.message ||
+                error.message ||
+                "ไม่สามารถสั่งซื้อได้";
               Alert.alert(
                 "เกิดข้อผิดพลาด",
-                error.data?.message || "ไม่สามารถสั่งซื้อได้"
+                errorMessage
               );
             }
           },
@@ -124,163 +177,174 @@ const CheckoutScreen = ({ navigation }: any) => {
     );
   };
 
-  // Component for rendering seller payment section
-  const SellerPaymentSection = ({ group }: { group: SellerGroup }) => {
-    const { data: sellerData } = useGetSellerByIdQuery(group.sellerId, {
-      skip: !group.sellerId,
-    });
-
-    const seller = sellerData?.data;
-    const currentPayment = selectedPayment[group.sellerId];
-
-    return (
-      <View style={styles.sellerSection} key={group.sellerId}>
-        {/* Seller Header */}
-        <View style={styles.sellerHeader}>
-          <Icon name="store" size={20} color="#4CAF50" />
-          <Text style={styles.sellerName}>{group.sellerName}</Text>
-        </View>
-
-        {/* Items List */}
-        <View style={styles.itemsList}>
-          {group.items.map((item) => (
-            <View key={item.cartId} style={styles.orderItem}>
-              <Text style={styles.itemName} numberOfLines={1}>
-                {String(item.productName || "")}
-              </Text>
-              <Text style={styles.itemQuantity}>x{item.quantity}</Text>
-              <Text style={styles.itemPrice}>
-                ฿{(item.price * item.quantity).toFixed(2)}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Subtotal */}
-        <View style={styles.subtotalRow}>
-          <Text style={styles.subtotalLabel}>ยอดรวมร้านนี้</Text>
-          <Text style={styles.subtotalValue}>฿{group.subtotal.toFixed(2)}</Text>
-        </View>
-
-        {/* Payment Methods */}
-        <Text style={styles.paymentTitle}>ช่องทางชำระเงิน</Text>
-
-        <TouchableOpacity
-          style={[
-            styles.paymentOption,
-            currentPayment === "Cash" && styles.paymentSelected,
-          ]}
-          onPress={() =>
-            setSelectedPayment((prev) => ({ ...prev, [group.sellerId]: "Cash" }))
-          }
-        >
-          <Icon
-            name={currentPayment === "Cash" ? "radiobox-marked" : "radiobox-blank"}
-            size={24}
-            color={currentPayment === "Cash" ? "#4CAF50" : "#999"}
-          />
-          <Icon name="cash" size={24} color="#666" style={styles.paymentIcon} />
-          <Text style={styles.paymentText}>เงินสด</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.paymentOption,
-            currentPayment === "Transfer" && styles.paymentSelected,
-          ]}
-          onPress={() =>
-            setSelectedPayment((prev) => ({
-              ...prev,
-              [group.sellerId]: "Transfer",
-            }))
-          }
-        >
-          <Icon
-            name={
-              currentPayment === "Transfer" ? "radiobox-marked" : "radiobox-blank"
-            }
-            size={24}
-            color={currentPayment === "Transfer" ? "#4CAF50" : "#999"}
-          />
-          <Icon
-            name="bank-transfer"
-            size={24}
-            color="#666"
-            style={styles.paymentIcon}
-          />
-          <Text style={styles.paymentText}>โอนเงิน</Text>
-        </TouchableOpacity>
-
-        {/* Show QR Code if Transfer is selected */}
-        {currentPayment === "Transfer" && seller?.qrCodeUrl && (
-          <View style={styles.qrCodeContainer}>
-            <Text style={styles.qrCodeTitle}>สแกน QR Code เพื่อชำระเงิน</Text>
-            <Image source={{ uri: seller.qrCodeUrl }} style={styles.qrCodeImage} />
-            <Text style={styles.qrCodeAmount}>ยอดชำระ: ฿{group.subtotal.toFixed(2)}</Text>
-          </View>
-        )}
-
-        {currentPayment === "Transfer" && !seller?.qrCodeUrl && (
-          <View style={styles.noQrCodeContainer}>
-            <Icon name="alert-circle-outline" size={40} color="#FF9800" />
-            <Text style={styles.noQrCodeText}>
-              ร้านนี้ยังไม่ได้เพิ่ม QR Code สำหรับการชำระเงิน
-            </Text>
-            <Text style={styles.noQrCodeSubtext}>
-              กรุณาเลือกวิธีชำระเงินอื่น หรือติดต่อร้านค้าโดยตรง
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[
-            styles.paymentOption,
-            currentPayment === "CreditCard" && styles.paymentSelected,
-          ]}
-          onPress={() =>
-            setSelectedPayment((prev) => ({
-              ...prev,
-              [group.sellerId]: "CreditCard",
-            }))
-          }
-        >
-          <Icon
-            name={
-              currentPayment === "CreditCard" ? "radiobox-marked" : "radiobox-blank"
-            }
-            size={24}
-            color={currentPayment === "CreditCard" ? "#4CAF50" : "#999"}
-          />
-          <Icon
-            name="credit-card"
-            size={24}
-            color="#666"
-            style={styles.paymentIcon}
-          />
-          <Text style={styles.paymentText}>บัตรเครดิต/เดบิต</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   return (
     <View style={styles.container}>
       <ScrollView>
-        {/* Render each seller group */}
+        {/* Display items grouped by seller */}
         {sellerGroups.map((group) => (
-          <SellerPaymentSection key={group.sellerId} group={group} />
+          <View style={styles.sellerSection} key={group.sellerId}>
+            {/* Seller Header */}
+            <View style={styles.sellerHeader}>
+              <Icon name="store" size={20} color="#4CAF50" />
+              <Text style={styles.sellerName}>{group.sellerName}</Text>
+            </View>
+
+            {/* Items List */}
+            <View style={styles.itemsList}>
+              {group.items.map((item) => (
+                <View key={item.cartId} style={styles.orderItem}>
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {String(item.productName || "")}
+                  </Text>
+                  <Text style={styles.itemQuantity}>x{item.quantity}</Text>
+                  <Text style={styles.itemPrice}>
+                    ฿{(item.price * item.quantity).toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Subtotal */}
+            <View style={styles.subtotalRow}>
+              <Text style={styles.subtotalLabel}>ยอดรวมร้านนี้</Text>
+              <Text style={styles.subtotalValue}>
+                ฿{group.subtotal.toFixed(2)}
+              </Text>
+            </View>
+          </View>
         ))}
 
+        {/* Payment Section - Single payment for entire order */}
+        <View style={styles.paymentSection}>
+          <Text style={styles.sectionTitle}>ช่องทางชำระเงิน</Text>
+          <Text style={styles.paymentNote}>
+            ชำระเงินครั้งเดียวสำหรับทั้งออเดอร์
+            ระบบจะแบ่งเงินให้แต่ละร้านโดยอัตโนมัติ
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.paymentOption,
+              selectedPayment === "Cash" && styles.paymentSelected,
+            ]}
+            onPress={() => setSelectedPayment("Cash")}
+          >
+            <Icon
+              name={
+                selectedPayment === "Cash"
+                  ? "radiobox-marked"
+                  : "radiobox-blank"
+              }
+              size={24}
+              color={selectedPayment === "Cash" ? "#4CAF50" : "#999"}
+            />
+            <Icon
+              name="cash"
+              size={24}
+              color="#666"
+              style={styles.paymentIcon}
+            />
+            <Text style={styles.paymentText}>เงินสด</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.paymentOption,
+              selectedPayment === "Transfer" && styles.paymentSelected,
+            ]}
+            onPress={() => setSelectedPayment("Transfer")}
+          >
+            <Icon
+              name={
+                selectedPayment === "Transfer"
+                  ? "radiobox-marked"
+                  : "radiobox-blank"
+              }
+              size={24}
+              color={selectedPayment === "Transfer" ? "#4CAF50" : "#999"}
+            />
+            <Icon
+              name="bank-transfer"
+              size={24}
+              color="#666"
+              style={styles.paymentIcon}
+            />
+            <Text style={styles.paymentText}>โอนเงิน</Text>
+          </TouchableOpacity>
+
+          {/* Show Platform QR Code if Transfer is selected */}
+          {selectedPayment === "Transfer" && (
+            <View style={styles.qrCodeContainer}>
+              <Text style={styles.qrCodeTitle}>สแกน QR Code เพื่อชำระเงิน</Text>
+              {isQrCodeLoading && (
+                <ActivityIndicator size="large" color="#4CAF50" />
+              )}
+              {qrCodeUrl && !isQrCodeLoading && (
+                <Image
+                  source={{ uri: qrCodeUrl }}
+                  style={styles.qrCodeImage}
+                  onLoad={() => setIsQrCodeLoading(false)} // Hide loader when image is loaded
+                  onError={() => {
+                    setIsQrCodeLoading(false);
+                    Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถโหลดรูปภาพ QR Code ได้");
+                  }}
+                />
+              )}
+              <Text style={styles.qrCodeAmount}>
+                ยอดชำระ: ฿{finalTotal.toFixed(2)}
+              </Text>
+              <Text style={styles.qrCodeNote}>
+                โปรดชำระเงินตามจำนวนที่ระบุ และเก็บหลักฐานการโอนเงิน
+              </Text>
+
+              {qrCodeUrl && !isQrCodeLoading && (
+                <TouchableOpacity
+                  style={styles.downloadButton}
+                  onPress={handleDownloadQrCode}
+                >
+                  <Icon name="download" size={20} color="#fff" />
+                  <Text style={styles.downloadButtonText}>
+                    ดาวน์โหลด QR Code
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.paymentOption,
+              selectedPayment === "CreditCard" && styles.paymentSelected,
+            ]}
+            onPress={() => setSelectedPayment("CreditCard")}
+          >
+            <Icon
+              name={
+                selectedPayment === "CreditCard"
+                  ? "radiobox-marked"
+                  : "radiobox-blank"
+              }
+              size={24}
+              color={selectedPayment === "CreditCard" ? "#4CAF50" : "#999"}
+            />
+            <Icon
+              name="credit-card"
+              size={24}
+              color="#666"
+              style={styles.paymentIcon}
+            />
+            <Text style={styles.paymentText}>บัตรเครดิต/เดบิต</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Order Summary */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>สรุปการชำระเงิน</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>ยอดรวมสินค้า</Text>
             <Text style={styles.summaryValue}>฿{totalAmount.toFixed(2)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>ค่าจัดส่ง</Text>
-            <Text style={styles.summaryValue}>฿{shippingFee.toFixed(2)}</Text>
-          </View>
+
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
             <Text style={styles.totalLabel}>ยอดรวมทั้งหมด</Text>
@@ -316,7 +380,7 @@ const styles = StyleSheet.create({
   },
   sellerSection: {
     backgroundColor: "#fff",
-    marginBottom: 15,
+    marginBottom: 10,
     padding: 15,
     borderRadius: 10,
     marginHorizontal: 10,
@@ -373,7 +437,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     backgroundColor: "#f9f9f9",
     borderRadius: 8,
-    marginBottom: 15,
   },
   subtotalLabel: {
     fontSize: 16,
@@ -385,11 +448,31 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#4CAF50",
   },
-  paymentTitle: {
-    fontSize: 16,
+  paymentSection: {
+    backgroundColor: "#fff",
+    marginBottom: 10,
+    padding: 15,
+    marginHorizontal: 10,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: "bold",
     color: "#333",
     marginBottom: 10,
+  },
+  paymentNote: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 15,
+    paddingHorizontal: 5,
+    fontStyle: "italic",
+    lineHeight: 18,
   },
   paymentOption: {
     flexDirection: "row",
@@ -443,27 +526,28 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     marginTop: 15,
   },
-  noQrCodeContainer: {
-    alignItems: "center",
-    padding: 20,
-    backgroundColor: "#FFF8E1",
-    borderRadius: 10,
-    marginVertical: 15,
-    borderWidth: 1,
-    borderColor: "#FF9800",
-  },
-  noQrCodeText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    textAlign: "center",
-    marginTop: 10,
-  },
-  noQrCodeSubtext: {
+  qrCodeNote: {
     fontSize: 12,
     color: "#666",
     textAlign: "center",
-    marginTop: 5,
+    marginTop: 10,
+    paddingHorizontal: 20,
+  },
+  downloadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0288D1",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  downloadButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginLeft: 10,
   },
   section: {
     backgroundColor: "#fff",
@@ -471,12 +555,6 @@ const styles = StyleSheet.create({
     padding: 15,
     marginHorizontal: 10,
     borderRadius: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 15,
   },
   summaryRow: {
     flexDirection: "row",

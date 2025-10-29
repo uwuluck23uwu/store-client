@@ -2,7 +2,6 @@ import { baseApi, API_BASE_URL } from './baseApi';
 import { CartItem, ResponseData, ResponseMessage } from '../types/api.types';
 
 interface AddToCartRequest {
-  userId: number;
   productId: number;
   quantity: number;
 }

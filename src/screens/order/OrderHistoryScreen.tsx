@@ -76,19 +76,32 @@ const OrderHistoryScreen = ({ navigation }: any) => {
             <Icon name="calendar" size={16} color="#666" />
             <Text style={styles.infoText}>{formattedDate}</Text>
           </View>
-
-          <View style={styles.infoRow}>
-            <Icon name="truck-delivery" size={16} color="#666" />
-            <Text style={styles.infoText}>ค่าจัดส่ง: ฿{item.shippingFee.toFixed(2)}</Text>
-          </View>
         </View>
+
+        {/* Order Items */}
+        {item.orderItems && item.orderItems.length > 0 && (
+          <View style={styles.itemsContainer}>
+            <Text style={styles.itemsTitle}>สินค้า:</Text>
+            {item.orderItems.map((orderItem, index) => (
+              <View key={orderItem.orderItemId || index} style={styles.orderItemRow}>
+                <Text style={styles.itemName} numberOfLines={1}>
+                  {orderItem.productName}
+                </Text>
+                <Text style={styles.itemQuantity}>x{orderItem.quantity}</Text>
+                <Text style={styles.itemPrice}>
+                  ฿{((orderItem.totalPrice || 0)).toFixed(2)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         <View style={styles.divider} />
 
         <View style={styles.orderFooter}>
           <View>
             <Text style={styles.totalLabel}>ยอดรวม</Text>
-            <Text style={styles.totalAmount}>฿{item.totalAmount.toFixed(2)}</Text>
+            <Text style={styles.totalAmount}>฿{(item.totalAmount || 0).toFixed(2)}</Text>
           </View>
 
           <View style={styles.paymentBadge}>
@@ -245,6 +258,43 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  itemsContainer: {
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  itemsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  orderItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 6,
+    marginBottom: 5,
+  },
+  itemName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#555',
+  },
+  itemQuantity: {
+    fontSize: 14,
+    color: '#666',
+    marginHorizontal: 10,
+    fontWeight: '500',
+  },
+  itemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4CAF50',
+    minWidth: 70,
+    textAlign: 'right',
   },
 });
 

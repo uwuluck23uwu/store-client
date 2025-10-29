@@ -92,7 +92,6 @@ const ProductDetailScreen = ({ route, navigation }: any) => {
 
     try {
       const result = await addToCart({
-        userId: user.id,
         productId: product.productId,
         quantity: quantity,
       }).unwrap();

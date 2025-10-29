@@ -16,6 +16,7 @@ import EditProfileScreen from "../screens/profile/EditProfileScreen";
 import CheckoutScreen from "../screens/order/CheckoutScreen";
 import OrderHistoryScreen from "../screens/order/OrderHistoryScreen";
 import AdminProductsScreen from "../screens/admin/AdminProductsScreen";
+import AdminOrdersScreen from "../screens/admin/AdminOrdersScreen";
 import CreateProductScreen from "../screens/admin/CreateProductScreen";
 import EditProductScreen from "../screens/admin/EditProductScreen";
 import ManageStoreScreen from "../screens/seller/ManageStoreScreen";
@@ -259,6 +260,21 @@ const AdminStack = () => {
         options={{ headerShown: false }}
       />
       <Stack.Screen
+        name="AdminOrders"
+        component={AdminOrdersScreen}
+        options={{
+          title: "จัดการคำสั่งซื้อ",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+      <Stack.Screen
         name="CreateProduct"
         component={CreateProductScreen}
         options={{
@@ -430,6 +446,27 @@ const DrawerNavigator = () => {
               <Icon name="shield-crown" size={size} color={color} />
             ),
             drawerLabel: "จัดการสินค้า (Admin)",
+          }}
+        />
+      )}
+      {isAdmin && (
+        <Drawer.Screen
+          name="AdminOrders"
+          component={AdminOrdersScreen}
+          options={{
+            title: "จัดการคำสั่งซื้อ",
+            headerShown: true,
+            headerStyle: {
+              backgroundColor: "#4CAF50",
+            },
+            headerTintColor: "#fff",
+            headerTitleStyle: {
+              fontWeight: "bold",
+            },
+            drawerIcon: ({ color, size }) => (
+              <Icon name="clipboard-text" size={size} color={color} />
+            ),
+            drawerLabel: "จัดการคำสั่งซื้อ (Admin)",
           }}
         />
       )}

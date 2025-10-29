@@ -1,30 +1,41 @@
 import { baseApi } from './baseApi';
 import { Order, OrderDetail, ResponseData, ResponseMessage } from '../types/api.types';
 
+interface OrderItemCreateRequest {
+  productId: number;
+  quantity: number;
+}
+
 interface CreateOrderRequest {
-  addressId: number;
   paymentMethod: string;
   notes?: string;
+  items: OrderItemCreateRequest[];
 }
 
 export const orderApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     // Get my orders
     getMyOrders: builder.query<ResponseData<Order[]>, void>({
-      query: () => '/order/my-orders',
+      query: () => '/api/order',
       providesTags: [{ type: 'Order', id: 'LIST' }],
     }),
 
     // Get order detail
     getOrderDetail: builder.query<ResponseData<OrderDetail>, number>({
-      query: (orderId) => `/order/${orderId}`,
+      query: (orderId) => `/api/order/${orderId}`,
       providesTags: (result, error, orderId) => [{ type: 'Order', id: orderId }],
+    }),
+
+    // Get all orders (Admin only)
+    getAllOrders: builder.query<ResponseData<OrderDetail[]>, void>({
+      query: () => '/api/order/all',
+      providesTags: [{ type: 'Order', id: 'ALL' }],
     }),
 
     // Create order
     createOrder: builder.mutation<ResponseData<Order>, CreateOrderRequest>({
       query: (data) => ({
-        url: '/order',
+        url: '/api/order',
         method: 'POST',
         body: data,
       }),
@@ -38,7 +49,7 @@ export const orderApi = baseApi.injectEndpoints({
     // Cancel order
     cancelOrder: builder.mutation<ResponseMessage, number>({
       query: (orderId) => ({
-        url: `/order/${orderId}/cancel`,
+        url: `/api/order/${orderId}/cancel`,
         method: 'PUT',
       }),
       invalidatesTags: (result, error, orderId) => [
@@ -49,7 +60,7 @@ export const orderApi = baseApi.injectEndpoints({
 
     // Check if user has purchased a product
     checkProductPurchased: builder.query<ResponseData<boolean>, number>({
-      query: (productId) => `/order/check-purchased/${productId}`,
+      query: (productId) => `/api/order/check-purchased/${productId}`,
       providesTags: (result, error, productId) => [
         { type: 'Order', id: `PURCHASED-${productId}` },
       ],
@@ -61,6 +72,7 @@ export const orderApi = baseApi.injectEndpoints({
 export const {
   useGetMyOrdersQuery,
   useGetOrderDetailQuery,
+  useGetAllOrdersQuery,
   useCreateOrderMutation,
   useCancelOrderMutation,
   useCheckProductPurchasedQuery,

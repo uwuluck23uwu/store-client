@@ -116,37 +116,44 @@ export interface Order {
   orderId: number;
   orderNumber: string;
   totalAmount: number;
-  shippingFee: number;
   status: string;
   paymentStatus: string;
   orderDate: string;
+  orderItems?: OrderItem[];
+  createdAt?: string;
+  updatedAt?: string;
+  note?: string;
 }
 
 export interface OrderDetail extends Order {
-  items: OrderItem[];
-  shippingAddress: Address;
+  items?: OrderItem[];
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
+  payment?: Payment;
 }
 
 export interface OrderItem {
   orderItemId: number;
+  productId: number;
   productName: string;
+  productImageUrl?: string;
   productImage?: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  unit?: string;
+  sellerName?: string;
 }
 
-// Address
-export interface Address {
-  addressId: number;
-  receiverName: string;
-  phoneNumber: string;
-  addressLine1: string;
-  district: string;
-  subdistrict: string;
-  province: string;
-  postalCode: string;
-  isDefault: boolean;
+export interface Payment {
+  paymentId: number;
+  orderId: number;
+  method: string;
+  amount: number;
+  status: string;
+  referenceCode?: string;
+  paidAt?: string;
 }
 
 // Location
