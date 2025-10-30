@@ -8,7 +8,7 @@ import type {
 
 // cloudflared tunnel --url https://localhost:7087
 // Get API_BASE_URL from environment variable
-export const API_BASE_URL = "https://councils-jump-set-hosts.trycloudflare.com";
+export const API_BASE_URL = "https://among-eyed-thinks-job.trycloudflare.com";
 
 // Helper function to convert localhost URLs to Cloudflared URLs
 export const convertImageUrl = (url: string | null | undefined): string => {
@@ -28,10 +28,6 @@ const baseQuery = fetchBaseQuery({
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-
-    // Don't set Content-Type header at all - let it be handled automatically
-    // For FormData: browser will set multipart/form-data with boundary
-    // For JSON: we'll set it in the query config when needed
 
     return headers;
   },

@@ -7,16 +7,21 @@ import {
   TouchableOpacity,
   RefreshControl,
   ScrollView,
+  Alert,
 } from "react-native";
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
-import { useGetAllOrdersQuery } from "../../api/orderApi";
+import {
+  useGetAllOrdersQuery,
+  useUpdateOrderStatusMutation,
+} from "../../api/orderApi";
 import {
   LoadingState,
   EmptyState,
   SearchBar,
   FilterChips,
+  StatusUpdateModal,
 } from "../../components/common";
-import type { FilterOption } from "../../components/common";
+import type { FilterOption, OrderStatus } from "../../components/common";
 import { colors, spacing } from "../../theme";
 import type { OrderDetail } from "../../types/api.types";
 import { format } from "date-fns";
@@ -26,8 +31,11 @@ const AdminOrdersScreen = ({ navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
 
   const { data, isLoading, refetch } = useGetAllOrdersQuery();
+  const [updateOrderStatus] = useUpdateOrderStatusMutation();
   const orders: OrderDetail[] = data?.data || [];
 
   // Status options
@@ -35,7 +43,6 @@ const AdminOrdersScreen = ({ navigation }: any) => {
     { label: "ทั้งหมด", value: "all" },
     { label: "รอดำเนินการ", value: "Pending" },
     { label: "ยืนยันแล้ว", value: "Confirmed" },
-    { label: "จัดส่งแล้ว", value: "Shipped" },
     { label: "สำเร็จ", value: "Delivered" },
     { label: "ยกเลิก", value: "Cancelled" },
   ];
@@ -77,7 +84,6 @@ const AdminOrdersScreen = ({ navigation }: any) => {
     const statusTexts: Record<string, string> = {
       Pending: "รอดำเนินการ",
       Confirmed: "ยืนยันแล้ว",
-      Shipped: "จัดส่งแล้ว",
       Delivered: "สำเร็จ",
       Cancelled: "ยกเลิก",
     };
@@ -102,6 +108,43 @@ const AdminOrdersScreen = ({ navigation }: any) => {
     return statusTexts[status] || status;
   };
 
+  // Resolve product name from various possible API shapes
+  const getOrderItemName = (orderItem: any) => {
+    return (
+      orderItem?.productName ||
+      orderItem?.product?.productName ||
+      orderItem?.name ||
+      orderItem?.product?.name ||
+      "-"
+    );
+  };
+
+  // Decide payment badge display from order + payment status
+  const getPaymentDisplay = (order: OrderDetail) => {
+    if (order.status === "Cancelled") {
+      return {
+        icon: "close-circle",
+        color: colors.error,
+        text: "ยกเลิก",
+      };
+    }
+
+    if (order.status === "Delivered" || order.payment?.status === "Paid") {
+      return {
+        icon: "check-circle",
+        color: colors.success,
+        text: "ชำระแล้ว",
+      };
+    }
+
+    // Default for Pending/Confirmed/Shipped and anything else
+    return {
+      icon: "clock-outline",
+      color: colors.warning,
+      text: "รอชำระ",
+    };
+  };
+
   const formatCurrency = (amount: number) => {
     return `฿${amount.toFixed(2)}`;
   };
@@ -112,9 +155,46 @@ const AdminOrdersScreen = ({ navigation }: any) => {
     return format(date, "dd MMM yyyy HH:mm", { locale: th });
   };
 
+  const handleOrderPress = (order: OrderDetail) => {
+    setSelectedOrder(order);
+    setModalVisible(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalVisible(false);
+    setSelectedOrder(null);
+  };
+
+  const handleUpdateStatus = async (newStatus: OrderStatus) => {
+    if (!selectedOrder?.orderId) {
+      Alert.alert("ข้อผิดพลาด", "ไม่พบข้อมูลคำสั่งซื้อ");
+      return;
+    }
+
+    try {
+      await updateOrderStatus({
+        orderId: selectedOrder.orderId,
+        data: { status: newStatus },
+      }).unwrap();
+
+      Alert.alert("สำเร็จ", "อัพเดทสถานะคำสั่งซื้อเรียบร้อยแล้ว");
+      refetch();
+    } catch (error: any) {
+      Alert.alert(
+        "เกิดข้อผิดพลาด",
+        error?.data?.message || "ไม่สามารถอัพเดทสถานะได้"
+      );
+      throw error;
+    }
+  };
+
   const renderOrderCard = ({ item: order }: { item: OrderDetail }) => {
     return (
-      <TouchableOpacity style={styles.orderCard} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.orderCard}
+        activeOpacity={0.7}
+        onPress={() => handleOrderPress(order)}
+      >
         {/* Order Header */}
         <View style={styles.orderHeader}>
           <View style={styles.orderHeaderLeft}>
@@ -173,9 +253,7 @@ const AdminOrdersScreen = ({ navigation }: any) => {
             </Text>
             {order.orderItems.slice(0, 3).map((item, index) => (
               <View key={index} style={styles.itemRow}>
-                <Text style={styles.itemName} numberOfLines={1}>
-                  • {item.productName}
-                </Text>
+                <Text style={styles.itemName}>• {getOrderItemName(item)}</Text>
                 <View style={styles.itemRight}>
                   <Text style={styles.itemQuantity}>x{item.quantity}</Text>
                   <Text style={styles.itemPrice}>
@@ -195,27 +273,23 @@ const AdminOrdersScreen = ({ navigation }: any) => {
         {/* Payment & Total */}
         <View style={styles.orderFooter}>
           <View style={styles.paymentInfo}>
-            <Icon
-              name={
-                order.payment?.status === "Paid"
-                  ? "check-circle"
-                  : "clock-outline"
-              }
-              size={16}
-              color={getPaymentStatusColor(order.payment?.status || "Pending")}
-            />
-            <Text
-              style={[
-                styles.paymentStatus,
-                {
-                  color: getPaymentStatusColor(
-                    order.payment?.status || "Pending"
-                  ),
-                },
-              ]}
-            >
-              {getPaymentStatusText(order.payment?.status || "Pending")}
-            </Text>
+            {(() => {
+              const display = getPaymentDisplay(order);
+              return (
+                <>
+                  <Icon
+                    name={display.icon as any}
+                    size={16}
+                    color={display.color}
+                  />
+                  <Text
+                    style={[styles.paymentStatus, { color: display.color }]}
+                  >
+                    {display.text}
+                  </Text>
+                </>
+              );
+            })()}
           </View>
           <Text style={styles.totalAmount}>
             รวม {formatCurrency(order.totalAmount || 0)}
@@ -243,25 +317,45 @@ const AdminOrdersScreen = ({ navigation }: any) => {
     <View style={styles.container}>
       {/* Header Stats */}
       <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Icon name="package-variant" size={24} color={colors.primary} />
-          <Text style={styles.statValue}>{orders.length}</Text>
-          <Text style={styles.statLabel}>ทั้งหมด</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Icon name="clock-outline" size={24} color={colors.warning} />
-          <Text style={[styles.statValue, { color: colors.warning }]}>
-            {orders.filter((o) => o.status === "Pending").length}
-          </Text>
-          <Text style={styles.statLabel}>รอดำเนินการ</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Icon name="check-circle" size={24} color={colors.success} />
-          <Text style={[styles.statValue, { color: colors.success }]}>
-            {orders.filter((o) => o.status === "Delivered").length}
-          </Text>
-          <Text style={styles.statLabel}>สำเร็จ</Text>
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.statsScrollContent}
+        >
+          <View style={styles.statCard}>
+            <Icon name="package-variant" size={24} color={colors.primary} />
+            <Text style={styles.statValue}>{orders.length}</Text>
+            <Text style={styles.statLabel}>ทั้งหมด</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Icon name="clock-outline" size={24} color={colors.warning} />
+            <Text style={[styles.statValue, { color: colors.warning }]}>
+              {orders.filter((o) => o.status === "Pending").length}
+            </Text>
+            <Text style={styles.statLabel}>รอดำเนินการ</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Icon name="check-circle-outline" size={24} color={colors.info} />
+            <Text style={[styles.statValue, { color: colors.info }]}>
+              {orders.filter((o) => o.status === "Confirmed").length}
+            </Text>
+            <Text style={styles.statLabel}>ยืนยันแล้ว</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Icon name="check-circle" size={24} color={colors.success} />
+            <Text style={[styles.statValue, { color: colors.success }]}>
+              {orders.filter((o) => o.status === "Delivered").length}
+            </Text>
+            <Text style={styles.statLabel}>สำเร็จ</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Icon name="close-circle" size={24} color={colors.error} />
+            <Text style={[styles.statValue, { color: colors.error }]}>
+              {orders.filter((o) => o.status === "Cancelled").length}
+            </Text>
+            <Text style={styles.statLabel}>ยกเลิก</Text>
+          </View>
+        </ScrollView>
       </View>
 
       {/* Search */}
@@ -311,6 +405,17 @@ const AdminOrdersScreen = ({ navigation }: any) => {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* Status Update Modal */}
+      {selectedOrder && (
+        <StatusUpdateModal
+          visible={modalVisible}
+          currentStatus={selectedOrder.status}
+          orderNumber={selectedOrder.orderNumber || `#${selectedOrder.orderId}`}
+          onClose={handleCloseModal}
+          onUpdate={handleUpdateStatus}
+        />
+      )}
     </View>
   );
 };
@@ -321,13 +426,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   statsContainer: {
-    flexDirection: "row",
-    padding: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  statsScrollContent: {
+    paddingHorizontal: spacing.md,
     gap: spacing.sm,
   },
   statCard: {
-    flex: 1,
+    minWidth: 130,
     backgroundColor: colors.surface,
     borderRadius: 16,
     padding: spacing.md,

@@ -21,3 +21,5 @@ export { FilterChips } from './FilterChips';
 export type { FilterOption } from './FilterChips';
 export { ProductManageCard } from './ProductManageCard';
 export { SelectionBar } from './SelectionBar';
+export { default as StatusUpdateModal } from './StatusUpdateModal';
+export type { OrderStatus } from './StatusUpdateModal';

@@ -12,6 +12,10 @@ interface CreateOrderRequest {
   items: OrderItemCreateRequest[];
 }
 
+interface UpdateOrderStatusRequest {
+  status: string;
+}
+
 export const orderApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     // Get my orders
@@ -58,6 +62,20 @@ export const orderApi = baseApi.injectEndpoints({
       ],
     }),
 
+    // Update order status (Admin only)
+    updateOrderStatus: builder.mutation<ResponseMessage, { orderId: number; data: UpdateOrderStatusRequest }>({
+      query: ({ orderId, data }) => ({
+        url: `/api/order/${orderId}/status`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { orderId }) => [
+        { type: 'Order', id: 'ALL' },
+        { type: 'Order', id: 'LIST' },
+        { type: 'Order', id: orderId },
+      ],
+    }),
+
     // Check if user has purchased a product
     checkProductPurchased: builder.query<ResponseData<boolean>, number>({
       query: (productId) => `/api/order/check-purchased/${productId}`,
@@ -75,5 +93,6 @@ export const {
   useGetAllOrdersQuery,
   useCreateOrderMutation,
   useCancelOrderMutation,
+  useUpdateOrderStatusMutation,
   useCheckProductPurchasedQuery,
 } = orderApi;
