@@ -9,6 +9,7 @@ import { useNavigation, DrawerActions } from "@react-navigation/native";
 import HomeScreen from "../screens/home/HomeScreen";
 import ProductListScreen from "../screens/product/ProductListScreen";
 import ProductDetailScreen from "../screens/product/ProductDetailScreen";
+import CategoryProductsScreen from "../screens/product/CategoryProductsScreen";
 import CartScreen from "../screens/cart/CartScreen";
 import MapScreen from "../screens/map/MapScreen";
 import ProfileScreen from "../screens/profile/ProfileScreen";
@@ -19,6 +20,12 @@ import AdminProductsScreen from "../screens/admin/AdminProductsScreen";
 import AdminOrdersScreen from "../screens/admin/AdminOrdersScreen";
 import CreateProductScreen from "../screens/admin/CreateProductScreen";
 import EditProductScreen from "../screens/admin/EditProductScreen";
+import ManageCategoriesScreen from "../screens/admin/ManageCategoriesScreen";
+import CreateCategoryScreen from "../screens/admin/CreateCategoryScreen";
+import EditCategoryScreen from "../screens/admin/EditCategoryScreen";
+import ManageBannersScreen from "../screens/admin/ManageBannersScreen";
+import CreateBannerScreen from "../screens/admin/CreateBannerScreen";
+import EditBannerScreen from "../screens/admin/EditBannerScreen";
 import ManageStoreScreen from "../screens/seller/ManageStoreScreen";
 import StoreDetailScreen from "../screens/seller/StoreDetailScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
@@ -45,6 +52,21 @@ const ProductsStack = () => {
         component={ProductDetailScreen}
         options={{
           title: "รายละเอียดสินค้า",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+      <Stack.Screen
+        name="CategoryProducts"
+        component={CategoryProductsScreen}
+        options={{
+          title: "สินค้าตามหมวดหมู่",
           headerShown: true,
           headerStyle: {
             backgroundColor: "#4CAF50",
@@ -187,6 +209,21 @@ const ProfileStack = () => {
         }}
       />
       <Stack.Screen
+        name="ProductDetail"
+        component={ProductDetailScreen}
+        options={{
+          title: "รายละเอียดสินค้า",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+      <Stack.Screen
         name="StoreDetail"
         component={StoreDetailScreen}
         options={{
@@ -250,20 +287,20 @@ const ProfileStack = () => {
   );
 };
 
-// Admin Stack
-const AdminStack = () => {
+// Categories Stack
+const AdminCategoriesStack = () => {
   return (
     <Stack.Navigator>
       <Stack.Screen
-        name="AdminProductsMain"
-        component={AdminProductsScreen}
+        name="ManageCategories"
+        component={ManageCategoriesScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
-        name="AdminOrders"
-        component={AdminOrdersScreen}
+        name="CreateCategory"
+        component={CreateCategoryScreen}
         options={{
-          title: "จัดการคำสั่งซื้อ",
+          title: "เพิ่มหมวดหมู่ใหม่",
           headerShown: true,
           headerStyle: {
             backgroundColor: "#4CAF50",
@@ -273,6 +310,77 @@ const AdminStack = () => {
             fontWeight: "bold",
           },
         }}
+      />
+      <Stack.Screen
+        name="EditCategory"
+        component={EditCategoryScreen}
+        options={{
+          title: "แก้ไขหมวดหมู่",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+    </Stack.Navigator>
+  );
+};
+
+// Banners Stack
+const AdminBannersStack = () => {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="ManageBanners"
+        component={ManageBannersScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="CreateBanner"
+        component={CreateBannerScreen}
+        options={{
+          title: "เพิ่มแบนเนอร์ใหม่",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+      <Stack.Screen
+        name="EditBanner"
+        component={EditBannerScreen}
+        options={{
+          title: "แก้ไขแบนเนอร์",
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: "#4CAF50",
+          },
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontWeight: "bold",
+          },
+        }}
+      />
+    </Stack.Navigator>
+  );
+};
+
+// Admin Stack
+const AdminProductsStack = () => {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="AdminProductsMain"
+        component={AdminProductsScreen}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="CreateProduct"
@@ -369,13 +477,6 @@ const TabNavigator = () => {
         component={MapScreen}
         options={{ title: "แผนที่" }}
       />
-      {isAdmin && (
-        <Tab.Screen
-          name="Admin"
-          component={AdminStack}
-          options={{ title: "จัดการ" }}
-        />
-      )}
       <Tab.Screen
         name="Profile"
         component={ProfileStack}
@@ -430,8 +531,50 @@ const DrawerNavigator = () => {
       />
       {isAdmin && (
         <Drawer.Screen
+          name="ManageBanners"
+          component={AdminBannersStack}
+          options={{
+            title: "จัดการแบนเนอร์",
+            headerShown: true,
+            headerStyle: {
+              backgroundColor: "#4CAF50",
+            },
+            headerTintColor: "#fff",
+            headerTitleStyle: {
+              fontWeight: "bold",
+            },
+            drawerIcon: ({ color, size }) => (
+              <Icon name="image-multiple" size={size} color={color} />
+            ),
+            drawerLabel: "จัดการแบนเนอร์ (Admin)",
+          }}
+        />
+      )}
+      {isAdmin && (
+        <Drawer.Screen
+          name="ManageCategories"
+          component={AdminCategoriesStack}
+          options={{
+            title: "จัดการหมวดหมู่",
+            headerShown: true,
+            headerStyle: {
+              backgroundColor: "#4CAF50",
+            },
+            headerTintColor: "#fff",
+            headerTitleStyle: {
+              fontWeight: "bold",
+            },
+            drawerIcon: ({ color, size }) => (
+              <Icon name="folder-multiple" size={size} color={color} />
+            ),
+            drawerLabel: "จัดการหมวดหมู่ (Admin)",
+          }}
+        />
+      )}
+      {isAdmin && (
+        <Drawer.Screen
           name="AdminProducts"
-          component={AdminStack}
+          component={AdminProductsStack}
           options={{
             title: "จัดการสินค้า",
             headerShown: true,
@@ -474,7 +617,6 @@ const DrawerNavigator = () => {
   );
 };
 
-// Main Navigator with Modal screens for Login/Register
 const MainNavigator = () => {
   return (
     <RootStack.Navigator

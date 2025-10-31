@@ -12,7 +12,7 @@ import {
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import {
   useGetProductsQuery,
-  useDeleteProductMutation,
+  useToggleProductStatusMutation,
 } from "../../api/productApi";
 import {
   LoadingState,
@@ -34,12 +34,24 @@ const AdminProductsScreen = ({ navigation }: any) => {
 
   // Multi-select states
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
+  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(
+    new Set()
+  );
 
-  const { data, isLoading, refetch } = useGetProductsQuery({
-    pageSize: 1000, // เพิ่ม pageSize เพื่อดึงสินค้าทั้งหมด
-  });
-  const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
+  // Map selectedStatus to isActive parameter using useMemo to ensure proper dependency tracking
+  const queryParams = useMemo(() => {
+    const isActiveParam = selectedStatus === "active" ? true
+      : selectedStatus === "inactive" ? false
+      : undefined;
+
+    return {
+      pageSize: 1000,
+      isActive: isActiveParam,
+    };
+  }, [selectedStatus]);
+
+  const { data, isLoading, refetch } = useGetProductsQuery(queryParams);
+  const [toggleProductStatus] = useToggleProductStatusMutation();
 
   const products = data?.data || [];
 
@@ -61,7 +73,8 @@ const AdminProductsScreen = ({ navigation }: any) => {
     { label: "ปิดใช้งาน", value: "inactive" },
   ];
 
-  // Filter products based on search and filters
+  // Filter products based on search and filters (client-side only for search and category)
+  // Status filter is now handled by API
   const filteredProducts = useMemo(() => {
     return products.filter((product: any) => {
       // Search filter
@@ -74,15 +87,9 @@ const AdminProductsScreen = ({ navigation }: any) => {
       const matchesCategory =
         selectedCategory === "all" || product.categoryName === selectedCategory;
 
-      // Status filter
-      const matchesStatus =
-        selectedStatus === "all" ||
-        (selectedStatus === "active" && product.isActive) ||
-        (selectedStatus === "inactive" && !product.isActive);
-
-      return matchesSearch && matchesCategory && matchesStatus;
+      return matchesSearch && matchesCategory;
     });
-  }, [products, searchQuery, selectedCategory, selectedStatus]);
+  }, [products, searchQuery, selectedCategory]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -118,27 +125,32 @@ const AdminProductsScreen = ({ navigation }: any) => {
     setSelectedProducts(new Set());
   };
 
-  // Delete single product
-  const handleDelete = (productId: number, productName: string) => {
+  // Toggle product status (soft delete)
+  const handleToggleStatus = (
+    productId: number,
+    productName: string,
+    isActive: boolean
+  ) => {
+    const action = isActive ? "ปิดการใช้งาน" : "เปิดการใช้งาน";
     Alert.alert(
-      "ยืนยันการลบ",
-      `คุณต้องการลบสินค้า "${productName}" ใช่หรือไม่?`,
+      `ยืนยันการ${action}`,
+      `คุณต้องการ${action}สินค้า "${productName}" ใช่หรือไม่?`,
       [
         { text: "ยกเลิก", style: "cancel" },
         {
-          text: "ลบ",
-          style: "destructive",
+          text: action,
+          style: isActive ? "destructive" : "default",
           onPress: async () => {
             try {
-              await deleteProduct(productId).unwrap();
-              Alert.alert("สำเร็จ", "ลบสินค้าเรียบร้อยแล้ว");
+              await toggleProductStatus(productId).unwrap();
+              Alert.alert("สำเร็จ", `${action}สินค้าเรียบร้อยแล้ว`);
             } catch (error: any) {
-              console.error("Delete error:", error);
+              console.error("Toggle status error:", error);
 
-              let errorMessage = "ไม่สามารถลบสินค้าได้";
+              let errorMessage = `ไม่สามารถ${action}สินค้าได้`;
 
               if (error?.status === 403) {
-                errorMessage = "คุณไม่มีสิทธิ์ลบสินค้านี้ (สินค้าของร้านอื่น)";
+                errorMessage = "คุณไม่มีสิทธิ์แก้ไขสินค้านี้ (สินค้าของร้านอื่น)";
               } else if (error?.status === 401) {
                 errorMessage = "กรุณาเข้าสู่ระบบใหม่";
               } else if (error?.data?.message) {
@@ -153,20 +165,20 @@ const AdminProductsScreen = ({ navigation }: any) => {
     );
   };
 
-  // Delete multiple products
-  const handleDeleteMultiple = () => {
+  // Toggle multiple products (soft delete)
+  const handleToggleMultiple = () => {
     if (selectedProducts.size === 0) {
-      Alert.alert("กรุณาเลือกสินค้า", "กรุณาเลือกสินค้าที่ต้องการลบ");
+      Alert.alert("กรุณาเลือกสินค้า", "กรุณาเลือกสินค้าที่ต้องการปิดการใช้งาน");
       return;
     }
 
     Alert.alert(
-      "ยืนยันการลบ",
-      `คุณต้องการลบสินค้า ${selectedProducts.size} รายการ ใช่หรือไม่?`,
+      "ยืนยันการปิดการใช้งาน",
+      `คุณต้องการปิดการใช้งานสินค้า ${selectedProducts.size} รายการ ใช่หรือไม่?`,
       [
         { text: "ยกเลิก", style: "cancel" },
         {
-          text: "ลบทั้งหมด",
+          text: "ปิดการใช้งานทั้งหมด",
           style: "destructive",
           onPress: async () => {
             try {
@@ -174,10 +186,10 @@ const AdminProductsScreen = ({ navigation }: any) => {
               let failCount = 0;
               const errors: string[] = [];
 
-              // ลบทีละรายการเพื่อตรวจสอบ error แต่ละรายการ
+              // Toggle ทีละรายการเพื่อตรวจสอบ error แต่ละรายการ
               for (const id of Array.from(selectedProducts)) {
                 try {
-                  await deleteProduct(id).unwrap();
+                  await toggleProductStatus(id).unwrap();
                   successCount++;
                 } catch (error: any) {
                   failCount++;
@@ -191,17 +203,22 @@ const AdminProductsScreen = ({ navigation }: any) => {
               setIsSelectionMode(false);
 
               if (failCount === 0) {
-                Alert.alert("สำเร็จ", `ลบสินค้า ${successCount} รายการเรียบร้อยแล้ว`);
+                Alert.alert(
+                  "สำเร็จ",
+                  `ปิดการใช้งานสินค้า ${successCount} รายการเรียบร้อยแล้ว`
+                );
               } else {
                 Alert.alert(
-                  "ลบสำเร็จบางส่วน",
-                  `ลบสำเร็จ ${successCount} รายการ\nไม่สามารถลบ ${failCount} รายการ\n\n${errors[0] || "ไม่มีสิทธิ์ลบบางรายการ"}`
+                  "สำเร็จบางส่วน",
+                  `ปิดการใช้งานสำเร็จ ${successCount} รายการ\nไม่สามารถปิดการใช้งาน ${failCount} รายการ\n\n${
+                    errors[0] || "ไม่มีสิทธิ์แก้ไขบางรายการ"
+                  }`
                 );
               }
             } catch (error: any) {
               Alert.alert(
                 "เกิดข้อผิดพลาด",
-                error?.data?.message || "ไม่สามารถลบสินค้าได้"
+                error?.data?.message || "ไม่สามารถปิดการใช้งานสินค้าได้"
               );
             }
           },
@@ -279,10 +296,19 @@ const AdminProductsScreen = ({ navigation }: any) => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => handleDelete(item.productId, item.productName)}
-            disabled={isDeleting}
+            onPress={() =>
+              handleToggleStatus(
+                item.productId,
+                item.productName,
+                item.isActive
+              )
+            }
           >
-            <Icon name="delete" size={24} color="#f44336" />
+            <Icon
+              name="delete"
+              size={24}
+              color="#f44336"
+            />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -303,7 +329,7 @@ const AdminProductsScreen = ({ navigation }: any) => {
           onClose={toggleSelectionMode}
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
-          onDelete={handleDeleteMultiple}
+          onDelete={handleToggleMultiple}
         />
       )}
 

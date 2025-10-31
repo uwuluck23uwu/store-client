@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  FlatList,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import * as ImagePicker from "expo-image-picker";
@@ -41,15 +42,42 @@ const productValidationSchema = Yup.object().shape({
 });
 
 const CreateProductScreen = ({ navigation }: any) => {
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<any>(null);
+  const [images, setImages] = useState<Array<{ uri: string; file: any }>>([]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
   const categories = categoriesData?.data || [];
 
   const [createProduct, { isLoading }] = useCreateProductMutation();
 
-  const pickImage = async () => {
+  const buildUploadFile = (asset: any, index: number) => {
+    // Prefer asset.mimeType if available
+    let mime = (asset.mimeType as string) || "";
+    let extFromMime = mime.split("/")[1];
+    // Try derive extension from URI
+    let extFromUri = (asset.uri as string).split("?")[0].split(".").pop();
+
+    let ext = (extFromMime || extFromUri || "jpg").toLowerCase();
+    if (ext === "jpeg") ext = "jpg";
+    if (ext === "heic" || ext === "heif") {
+      // Convert HEIC/HEIF to jpg type for backend compatibility
+      ext = "jpg";
+      mime = "image/jpeg";
+    }
+
+    const type = mime && mime.startsWith("image/") ? mime : `image/${ext || "jpeg"}`;
+    const fileName = `product_${Date.now()}_${index}.${ext || "jpg"}`;
+
+    return {
+      uri: asset.uri,
+      file: {
+        uri: asset.uri,
+        name: fileName,
+        type,
+      },
+    };
+  };
+
+  const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("ขออภัย", "จำเป็นต้องอนุญาตการเข้าถึงคลังรูปภาพ");
@@ -58,29 +86,27 @@ const CreateProductScreen = ({ navigation }: any) => {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      setImageUri(asset.uri);
-
-      // Create file object for upload
-      const fileExtension = asset.uri.split(".").pop();
-      const fileName = `product_${Date.now()}.${fileExtension}`;
-      const fileType = `image/${fileExtension}`;
-
-      setImageFile({
-        uri: asset.uri,
-        name: fileName,
-        type: fileType,
-      });
+    if (!result.canceled && result.assets.length > 0) {
+      const newImages = result.assets.map((asset, index) => buildUploadFile(asset, index));
+      setImages([...images, ...newImages]);
     }
   };
 
+  const removeImage = (index: number) => {
+    const newImages = images.filter((_, i) => i !== index);
+    setImages(newImages);
+  };
+
   const handleSubmit = async (values: any) => {
+    if (images.length === 0) {
+      Alert.alert("แจ้งเตือน", "กรุณาเลือกรูปภาพสินค้าอย่างน้อย 1 รูป");
+      return;
+    }
+
     try {
       const productData = {
         productName: values.productName,
@@ -89,7 +115,7 @@ const CreateProductScreen = ({ navigation }: any) => {
         stock: parseInt(values.stock),
         unit: values.unit,
         categoryId: parseInt(values.categoryId),
-        image: imageFile,
+        images: images.map((img) => img.file),
       };
 
       const result = await createProduct(productData).unwrap();
@@ -147,19 +173,47 @@ const CreateProductScreen = ({ navigation }: any) => {
           contentContainerStyle={styles.content}
         >
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>รูปภาพสินค้า</Text>
+            <Text style={styles.sectionTitle}>
+              รูปภาพสินค้า ({images.length})
+            </Text>
+
+            {images.length > 0 && (
+              <FlatList
+                data={images}
+                horizontal
+                keyExtractor={(item, index) => index.toString()}
+                showsHorizontalScrollIndicator={false}
+                style={styles.imageList}
+                renderItem={({ item, index }) => (
+                  <View style={styles.imageContainer}>
+                    <Image source={{ uri: item.uri }} style={styles.imagePreview} />
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <Icon name="close-circle" size={24} color="#f44336" />
+                    </TouchableOpacity>
+                    {index === 0 && (
+                      <View style={styles.primaryBadge}>
+                        <Text style={styles.primaryText}>หลัก</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              />
+            )}
+
             <TouchableOpacity
               style={styles.imagePickerButton}
-              onPress={pickImage}
+              onPress={pickImages}
             >
-              {imageUri ? (
-                <Image source={{ uri: imageUri }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.placeholderContainer}>
-                  <Icon name="camera-plus" size={48} color="#999" />
-                  <Text style={styles.placeholderText}>เลือกรูปภาพ</Text>
-                </View>
-              )}
+              <View style={styles.placeholderContainer}>
+                <Icon name="camera-plus" size={48} color="#4CAF50" />
+                <Text style={styles.placeholderText}>
+                  {images.length === 0 ? "เลือกรูปภาพ" : "เพิ่มรูปภาพ"}
+                </Text>
+                <Text style={styles.helperText}>สามารถเลือกได้หลายรูป</Text>
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -324,29 +378,64 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 16,
   },
+  imageList: {
+    marginBottom: 16,
+  },
+  imageContainer: {
+    position: "relative",
+    marginRight: 12,
+  },
+  imagePreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 8,
+  },
+  removeButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+  },
+  primaryBadge: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  primaryText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
   imagePickerButton: {
     width: "100%",
-    height: 200,
+    height: 150,
     borderRadius: 12,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "#e0e0e0",
+    borderColor: "#4CAF50",
     borderStyle: "dashed",
-  },
-  previewImage: {
-    width: "100%",
-    height: "100%",
   },
   placeholderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fafafa",
+    backgroundColor: "#f0f8f0",
   },
   placeholderText: {
     marginTop: 8,
     fontSize: 16,
-    color: "#999",
+    color: "#4CAF50",
+    fontWeight: "600",
+  },
+  helperText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#666",
   },
   label: {
     fontSize: 14,

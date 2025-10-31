@@ -22,8 +22,9 @@ import {
 import { useGetCategoriesQuery } from "../../api/productApi";
 import PrimaryButton from "../../components/common/PrimaryButton";
 import LoadingState from "../../components/common/LoadingState";
+import { convertImageUrl } from "../../api/baseApi";
 
-// Validation Schema (same as CreateProductScreen but with optional fields)
+// Validation Schema
 const productValidationSchema = Yup.object().shape({
   productName: Yup.string()
     .required("กรุณากรอกชื่อสินค้า")
@@ -47,7 +48,6 @@ const productValidationSchema = Yup.object().shape({
 });
 
 const EditProductScreen = ({ route, navigation }: any) => {
-  // Support both 'id' and 'productId' parameter names
   const { productId, id } = route.params;
   const actualProductId = productId || id;
 
@@ -55,22 +55,58 @@ const EditProductScreen = ({ route, navigation }: any) => {
     useGetProductQuery(actualProductId);
   const product = productData?.data;
 
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<any>(null);
+  const [existingImages, setExistingImages] = useState<any[]>([]);
+  const [newImages, setNewImages] = useState<Array<{ uri: string; file: any }>>([]);
+  const [deleteImageIds, setDeleteImageIds] = useState<number[]>([]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
   const categories = categoriesData?.data || [];
 
   const [updateProduct, { isLoading }] = useUpdateProductMutation();
 
-  // Set initial image from product
+  // Set initial existing images from product
   React.useEffect(() => {
-    if (product?.imageUrl) {
-      setImageUri(product.imageUrl);
+    if (product?.productImages && product.productImages.length > 0) {
+      setExistingImages(product.productImages);
+    } else if (product?.imageUrl) {
+      // Fallback to single image for backward compatibility
+      setExistingImages([
+        {
+          productImageId: 0,
+          imageUrl: product.imageUrl,
+          isPrimary: true,
+          displayOrder: 0,
+        },
+      ]);
     }
   }, [product]);
 
-  const pickImage = async () => {
+  const buildUploadFile = (asset: any, index: number) => {
+    let mime = (asset.mimeType as string) || "";
+    let extFromMime = mime.split("/")[1];
+    let extFromUri = (asset.uri as string).split("?")[0].split(".").pop();
+
+    let ext = (extFromMime || extFromUri || "jpg").toLowerCase();
+    if (ext === "jpeg") ext = "jpg";
+    if (ext === "heic" || ext === "heif") {
+      ext = "jpg";
+      mime = "image/jpeg";
+    }
+
+    const type = mime && mime.startsWith("image/") ? mime : `image/${ext || "jpeg"}`;
+    const fileName = `product_${Date.now()}_${index}.${ext || "jpg"}`;
+
+    return {
+      uri: asset.uri,
+      file: {
+        uri: asset.uri,
+        name: fileName,
+        type,
+      },
+    };
+  };
+
+  const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("ขออภัย", "จำเป็นต้องอนุญาตการเข้าถึงคลังรูปภาพ");
@@ -79,29 +115,43 @@ const EditProductScreen = ({ route, navigation }: any) => {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      setImageUri(asset.uri);
-
-      // Create file object for upload
-      const fileExtension = asset.uri.split(".").pop();
-      const fileName = `product_${Date.now()}.${fileExtension}`;
-      const fileType = `image/${fileExtension}`;
-
-      setImageFile({
-        uri: asset.uri,
-        name: fileName,
-        type: fileType,
-      });
+    if (!result.canceled && result.assets.length > 0) {
+      const newImgs = result.assets.map((asset, index) => buildUploadFile(asset, index));
+      setNewImages([...newImages, ...newImgs]);
     }
   };
 
+  const removeExistingImage = (imageId: number) => {
+    Alert.alert("ยืนยันการลบ", "คุณต้องการลบรูปภาพนี้ใช่หรือไม่?", [
+      { text: "ยกเลิก", style: "cancel" },
+      {
+        text: "ลบ",
+        style: "destructive",
+        onPress: () => {
+          setExistingImages(existingImages.filter((img) => img.productImageId !== imageId));
+          setDeleteImageIds([...deleteImageIds, imageId]);
+        },
+      },
+    ]);
+  };
+
+  const removeNewImage = (index: number) => {
+    const updatedNewImages = newImages.filter((_, i) => i !== index);
+    setNewImages(updatedNewImages);
+  };
+
   const handleSubmit = async (values: any) => {
+    const totalImages = existingImages.length + newImages.length;
+
+    if (totalImages === 0) {
+      Alert.alert("แจ้งเตือน", "กรุณาเลือกรูปภาพสินค้าอย่างน้อย 1 รูป");
+      return;
+    }
+
     try {
       const updateData: any = {
         productName: values.productName,
@@ -113,8 +163,12 @@ const EditProductScreen = ({ route, navigation }: any) => {
         isActive: values.isActive,
       };
 
-      if (imageFile) {
-        updateData.image = imageFile;
+      if (newImages.length > 0) {
+        updateData.images = newImages.map((img) => img.file);
+      }
+
+      if (deleteImageIds.length > 0) {
+        updateData.deleteImageIds = deleteImageIds;
       }
 
       const result = await updateProduct({ id: actualProductId, data: updateData }).unwrap();
@@ -149,6 +203,8 @@ const EditProductScreen = ({ route, navigation }: any) => {
     return <LoadingState />;
   }
 
+  const totalImages = existingImages.length + newImages.length;
+
   return (
     <Formik
       initialValues={{
@@ -178,23 +234,79 @@ const EditProductScreen = ({ route, navigation }: any) => {
           contentContainerStyle={styles.content}
         >
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>รูปภาพสินค้า</Text>
+            <Text style={styles.sectionTitle}>
+              รูปภาพสินค้า ({totalImages})
+            </Text>
+
+            {existingImages.length > 0 && (
+              <View style={styles.imagesSection}>
+                <Text style={styles.subTitle}>รูปภาพปัจจุบัน</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.horizontalScrollContent}
+                >
+                  {existingImages.map((item, index) => (
+                    <View key={`existing_${item.productImageId || index}`} style={styles.imageContainer}>
+                      <Image
+                        source={{ uri: convertImageUrl(item.imageUrl) }}
+                        style={styles.imagePreview}
+                      />
+                      {item.productImageId > 0 && (
+                        <TouchableOpacity
+                          style={styles.removeButton}
+                          onPress={() => removeExistingImage(item.productImageId)}
+                        >
+                          <Icon name="close-circle" size={24} color="#f44336" />
+                        </TouchableOpacity>
+                      )}
+                      {item.isPrimary && (
+                        <View style={styles.primaryBadge}>
+                          <Text style={styles.primaryText}>หลัก</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {newImages.length > 0 && (
+              <View style={styles.imagesSection}>
+                <Text style={styles.subTitle}>รูปภาพใหม่</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.horizontalScrollContent}
+                >
+                  {newImages.map((item, index) => (
+                    <View key={`new_${index}`} style={styles.imageContainer}>
+                      <Image source={{ uri: item.uri }} style={styles.imagePreview} />
+                      <TouchableOpacity
+                        style={styles.removeButton}
+                        onPress={() => removeNewImage(index)}
+                      >
+                        <Icon name="close-circle" size={24} color="#f44336" />
+                      </TouchableOpacity>
+                      <View style={styles.newBadge}>
+                        <Text style={styles.newText}>ใหม่</Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
             <TouchableOpacity
               style={styles.imagePickerButton}
-              onPress={pickImage}
+              onPress={pickImages}
             >
-              {imageUri ? (
-                <Image source={{ uri: imageUri }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.placeholderContainer}>
-                  <Icon name="camera-plus" size={48} color="#999" />
-                  <Text style={styles.placeholderText}>เลือกรูปภาพ</Text>
-                </View>
-              )}
+              <View style={styles.placeholderContainer}>
+                <Icon name="camera-plus" size={48} color="#4CAF50" />
+                <Text style={styles.placeholderText}>เพิ่มรูปภาพ</Text>
+                <Text style={styles.helperText}>สามารถเลือกได้หลายรูป</Text>
+              </View>
             </TouchableOpacity>
-            {imageFile && (
-              <Text style={styles.helperText}>รูปภาพใหม่ถูกเลือกแล้ว</Text>
-            )}
           </View>
 
           <View style={styles.section}>
@@ -373,29 +485,88 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 16,
   },
+  subTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  imagesSection: {
+    marginBottom: 16,
+  },
+  horizontalScrollContent: {
+    paddingRight: 16,
+  },
+  imageContainer: {
+    position: "relative",
+    marginRight: 12,
+  },
+  imagePreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 8,
+  },
+  removeButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+  },
+  primaryBadge: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  primaryText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  newBadge: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: "#2196F3",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  newText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
   imagePickerButton: {
     width: "100%",
-    height: 200,
+    height: 150,
     borderRadius: 12,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "#e0e0e0",
+    borderColor: "#4CAF50",
     borderStyle: "dashed",
-  },
-  previewImage: {
-    width: "100%",
-    height: "100%",
   },
   placeholderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fafafa",
+    backgroundColor: "#f0f8f0",
   },
   placeholderText: {
     marginTop: 8,
     fontSize: 16,
-    color: "#999",
+    color: "#4CAF50",
+    fontWeight: "600",
+  },
+  helperText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#666",
   },
   label: {
     fontSize: 14,
@@ -435,11 +606,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 12,
-  },
-  helperText: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
   },
   errorText: {
     color: "#f44336",

@@ -13,6 +13,7 @@ import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import {
   useGetProductsQuery,
   useDeleteProductMutation,
+  useLazyCheckProductUsageQuery,
 } from "../../api/productApi";
 import { useGetLocationsQuery } from "../../api/locationApi";
 import { useGetSellerByIdQuery } from "../../api/sellerApi";
@@ -48,12 +49,14 @@ const StoreDetailScreen = ({ route, navigation }: any) => {
     sellerId,
     pageSize: 100, // Get all products
   });
-  const products = productsData?.data || [];
+  // Filter only active products
+  const products = (productsData?.data || []).filter(product => product.isActive !== false);
 
   const { data: locationsData } = useGetLocationsQuery();
   const locations = locationsData?.data || [];
 
   const [deleteProduct] = useDeleteProductMutation();
+  const [checkProductUsage] = useLazyCheckProductUsageQuery();
 
   // Multi-select state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -107,44 +110,162 @@ const StoreDetailScreen = ({ route, navigation }: any) => {
     setSelectedProducts(new Set());
   };
 
-  // Delete single product
-  const handleDeleteProduct = (productId: number, productName: string) => {
-    Alert.alert("ยืนยันการลบ", `คุณต้องการลบสินค้า "${productName}" หรือไม่?`, [
-      {
-        text: "ยกเลิก",
-        style: "cancel",
-      },
-      {
-        text: "ลบ",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteProduct(productId).unwrap();
-            Alert.alert("สำเร็จ", "ลบสินค้าเรียบร้อยแล้ว");
-            refetchProducts();
-          } catch (error: any) {
-            console.error("Delete product error:", error);
+  // Delete single product with options
+  const handleDeleteProduct = async (
+    productId: number,
+    productName: string
+  ) => {
+    try {
+      // Check product usage first
+      const usageResult = await checkProductUsage(productId).unwrap();
+      const usage = usageResult.data;
 
-            let errorMessage = "ไม่สามารถลบสินค้าได้";
+      if (!usage) {
+        Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถตรวจสอบข้อมูลสินค้าได้");
+        return;
+      }
 
-            if (error?.status === 403) {
-              errorMessage = "คุณไม่มีสิทธิ์ลบสินค้านี้";
-            } else if (error?.status === 401) {
-              errorMessage = "กรุณาเข้าสู่ระบบใหม่";
-            } else if (
-              error?.status === 400 &&
-              error?.data?.message?.includes("existing orders")
-            ) {
-              errorMessage = "ไม่สามารถลบสินค้าที่มีคำสั่งซื้อแล้ว";
-            } else if (error?.data?.message) {
-              errorMessage = error.data.message;
-            }
+      // Show detailed usage information and deletion options
+      const usageDetails = [
+        `📦 สินค้า: ${productName}`,
+        ``,
+        `📊 ข้อมูลการใช้งาน:`,
+        `• คำสั่งซื้อ: ${usage.orderCount} รายการ`,
+        `• ตะกร้าสินค้า: ${usage.inCartsCount} ครั้ง`,
+        `• รีวิว: ${usage.reviewCount} รีวิว`,
+        ``,
+      ].join("\n");
 
-            Alert.alert("เกิดข้อผิดพลาด", errorMessage);
-          }
+      if (usage.canHardDelete) {
+        // Product can be hard deleted - show both options
+        Alert.alert(
+          "เลือกวิธีการลบ",
+          usageDetails +
+            `✅ สินค้านี้ไม่มีประวัติการสั่งซื้อ\nคุณสามารถเลือกลบถาวรได้\n\n` +
+            `🔹 ลบชั่วคราว: ซ่อนสินค้า (สามารถกู้คืนได้)\n` +
+            `🔸 ลบถาวร: ลบข้อมูลทั้งหมด รวมถึงรีวิวและข้อมูลในตะกร้า (ไม่สามารถกู้คืนได้)`,
+          [
+            {
+              text: "ยกเลิก",
+              style: "cancel",
+            },
+            {
+              text: "ลบสินค้า",
+              style: "default",
+              onPress: () => performDelete(productId, productName, false),
+            },
+            {
+              text: "ลบถาวร",
+              style: "destructive",
+              onPress: () =>
+                confirmPermanentDelete(productId, productName, usage),
+            },
+          ]
+        );
+      } else {
+        // Product has orders - can only soft delete
+        Alert.alert(
+          "ลบสินค้า (ชั่วคราว)",
+          usageDetails +
+            `⚠️ ${usage.recommendedAction}\n\n` +
+            `สินค้านี้จะถูกซ่อนและไม่แสดงในร้านค้า แต่ข้อมูลจะยังคงอยู่ในระบบ`,
+          [
+            {
+              text: "ยกเลิก",
+              style: "cancel",
+            },
+            {
+              text: "ลบชั่วคราว",
+              style: "destructive",
+              onPress: () => performDelete(productId, productName, false),
+            },
+          ]
+        );
+      }
+    } catch (error: any) {
+      console.error("Check product usage error:", error);
+      // If usage check fails, fall back to simple delete confirmation
+      Alert.alert(
+        "ยืนยันการลบ",
+        `คุณต้องการลบสินค้า "${productName}" หรือไม่?\n\n` +
+          `(ไม่สามารถตรวจสอบข้อมูลการใช้งาน จะทำการลบชั่วคราว)`,
+        [
+          {
+            text: "ยกเลิก",
+            style: "cancel",
+          },
+          {
+            text: "ลบ",
+            style: "destructive",
+            onPress: () => performDelete(productId, productName, false),
+          },
+        ]
+      );
+    }
+  };
+
+  // Confirm permanent deletion with extra warning
+  const confirmPermanentDelete = (
+    productId: number,
+    productName: string,
+    usage?: any
+  ) => {
+    Alert.alert(
+      "⚠️ ยืนยันการลบถาวร",
+      `คุณแน่ใจหรือไม่ว่าต้องการลบสินค้า "${productName}" ถาวร?\n\n` +
+        `การลบถาวรจะทำให้:\n` +
+        `• ลบข้อมูลสินค้าทั้งหมด\n` +
+        `• ลบรีวิวทั้งหมด (${usage?.reviewCount || 0} รีวิว)\n` +
+        `• ลบจากตะกร้าสินค้าทั้งหมด\n` +
+        `• ลบรูปภาพสินค้าทั้งหมด\n\n` +
+        `⚠️ การกระทำนี้ไม่สามารถย้อนกลับได้!`,
+      [
+        {
+          text: "ยกเลิก",
+          style: "cancel",
         },
-      },
-    ]);
+        {
+          text: "ยืนยันลบถาวร",
+          style: "destructive",
+          onPress: () => performDelete(productId, productName, true),
+        },
+      ]
+    );
+  };
+
+  // Perform the actual deletion
+  const performDelete = async (
+    productId: number,
+    productName: string,
+    hardDelete: boolean
+  ) => {
+    try {
+      await deleteProduct({ id: productId, hardDelete }).unwrap();
+      Alert.alert(
+        "สำเร็จ",
+        hardDelete ? "ลบสินค้าถาวรเรียบร้อยแล้ว" : "ซ่อนสินค้าเรียบร้อยแล้ว"
+      );
+      refetchProducts();
+    } catch (error: any) {
+      console.error("Delete product error:", error);
+
+      let errorMessage = "ไม่สามารถลบสินค้าได้";
+
+      if (error?.status === 403) {
+        errorMessage = "คุณไม่มีสิทธิ์ลบสินค้านี้";
+      } else if (error?.status === 401) {
+        errorMessage = "กรุณาเข้าสู่ระบบใหม่";
+      } else if (
+        error?.status === 400 &&
+        error?.data?.message?.includes("existing orders")
+      ) {
+        errorMessage = "ไม่สามารถลบสินค้าที่มีคำสั่งซื้อแล้ว";
+      } else if (error?.data?.message) {
+        errorMessage = error.data.message;
+      }
+
+      Alert.alert("เกิดข้อผิดพลาด", errorMessage);
+    }
   };
 
   // Delete multiple products
@@ -172,7 +293,7 @@ const StoreDetailScreen = ({ route, navigation }: any) => {
 
             for (const id of Array.from(selectedProducts)) {
               try {
-                await deleteProduct(id).unwrap();
+                await deleteProduct({ id, hardDelete: false }).unwrap();
                 successCount++;
               } catch (error: any) {
                 failCount++;
@@ -351,7 +472,9 @@ const StoreDetailScreen = ({ route, navigation }: any) => {
                     if (rootNavigation) {
                       rootNavigation.navigate("MainTabs", {
                         screen: "Map",
-                        params: { highlightLocationId: storeLocation.locationId },
+                        params: {
+                          highlightLocationId: storeLocation.locationId,
+                        },
                       });
                     }
                   }}
@@ -383,7 +506,10 @@ const StoreDetailScreen = ({ route, navigation }: any) => {
                   label="เพิ่มสินค้า"
                   icon="plus"
                   fullWidth={false}
-                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  style={{
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.sm,
+                  }}
                   textStyle={{ fontSize: fontSize.sm }}
                   onPress={() =>
                     navigation.navigate("AddProduct", { sellerId })

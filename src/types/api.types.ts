@@ -67,6 +67,14 @@ export interface Seller {
 }
 
 // Product & Category
+export interface ProductImage {
+  productImageId: number;
+  productId: number;
+  imageUrl: string;
+  displayOrder: number;
+  isPrimary: boolean;
+}
+
 export interface Product {
   productId: number;
   productName: string;
@@ -82,12 +90,14 @@ export interface Product {
   sellerName?: string;
   seller?: Seller;
   isActive: boolean;
+  productImages?: ProductImage[];
 }
 
 export interface Category {
   categoryId: number;
   categoryName: string;
   description?: string;
+  imageUrl?: string;
   isActive: boolean;
 }
 

@@ -9,6 +9,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  Dimensions,
 } from "react-native";
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import { useGetProductQuery } from "../../api/productApi";
@@ -40,6 +41,8 @@ import { PrimaryButton } from "../../components/common/PrimaryButton";
 import { LoadingState } from "../../components/common/LoadingState";
 import { EmptyState } from "../../components/common/EmptyState";
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 const ProductDetailScreen = ({ route, navigation }: any) => {
   const { id } = route.params;
   const [quantity, setQuantity] = useState(1);
@@ -47,6 +50,7 @@ const ProductDetailScreen = ({ route, navigation }: any) => {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [editingReview, setEditingReview] = useState<Review | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const { user } = useSelector((state: RootState) => state.auth);
 
   const { data: productData, isLoading, isError } = useGetProductQuery(id);
@@ -248,15 +252,64 @@ const ProductDetailScreen = ({ route, navigation }: any) => {
     );
   }
 
+  // Get all product images
+  const productImages = product.productImages && product.productImages.length > 0
+    ? product.productImages.map((img: any) => convertImageUrl(img.imageUrl))
+    : product.imageUrl
+    ? [convertImageUrl(product.imageUrl)]
+    : [];
+
   return (
     <View style={styles.container}>
       <ScrollView>
         <View style={styles.imageContainer}>
-          {product.imageUrl ? (
-            <Image
-              source={{ uri: convertImageUrl(product.imageUrl) }}
-              style={styles.productImage}
-            />
+          {productImages.length > 0 ? (
+            <>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={(event) => {
+                  const slideIndex = Math.round(
+                    event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width
+                  );
+                  setSelectedImageIndex(slideIndex);
+                }}
+                scrollEventThrottle={16}
+              >
+                {productImages.map((imageUrl: string, index: number) => (
+                  <Image
+                    key={index}
+                    source={{ uri: imageUrl }}
+                    style={styles.productImage}
+                  />
+                ))}
+              </ScrollView>
+
+              {/* Image indicators */}
+              {productImages.length > 1 && (
+                <View style={styles.imageIndicators}>
+                  {productImages.map((_: any, index: number) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.indicator,
+                        selectedImageIndex === index && styles.activeIndicator,
+                      ]}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {/* Image counter */}
+              {productImages.length > 1 && (
+                <View style={styles.imageCounter}>
+                  <Text style={styles.imageCounterText}>
+                    {selectedImageIndex + 1} / {productImages.length}
+                  </Text>
+                </View>
+              )}
+            </>
           ) : (
             <View style={[styles.productImage, styles.noImage]}>
               <Icon name="image-off" size={64} color={colors.textTertiary} />
@@ -432,6 +485,7 @@ const ProductDetailScreen = ({ route, navigation }: any) => {
                         <Image
                           source={{ uri: convertImageUrl(review.userImageUrl) }}
                           style={styles.userAvatar}
+                          defaultSource={require('../../../assets/icon.png')}
                         />
                       ) : (
                         <View
@@ -602,13 +656,50 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   productImage: {
-    width: "100%",
+    width: SCREEN_WIDTH,
     height: 300,
     backgroundColor: colors.divider,
+    resizeMode: "cover",
   },
   noImage: {
     justifyContent: "center",
     alignItems: "center",
+  },
+  imageIndicators: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "absolute",
+    bottom: 16,
+    left: 0,
+    right: 0,
+  },
+  indicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
+    marginHorizontal: 4,
+  },
+  activeIndicator: {
+    backgroundColor: colors.primary,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  imageCounter: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  imageCounterText: {
+    color: "#fff",
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   content: {
     padding: spacing.base,

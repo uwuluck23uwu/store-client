@@ -30,7 +30,7 @@ const ProductListScreen = ({ navigation }: any) => {
     data: productsData,
     isLoading,
     refetch,
-  } = useGetProductsQuery({ pageSize: 50 });
+  } = useGetProductsQuery({ pageSize: 50, isActive: true });
 
   const { data: categoriesData, isLoading: isCategoriesLoading } =
     useGetActiveCategoriesQuery();
@@ -47,6 +47,9 @@ const ProductListScreen = ({ navigation }: any) => {
   // Apply filters and sorting
   const filteredAndSortedProducts = useMemo(() => {
     let result = [...baseProducts];
+
+    // Filter out inactive products
+    result = result.filter((product) => product.isActive);
 
     // Filter by category
     if (selectedCategoryId !== null) {

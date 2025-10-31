@@ -48,7 +48,7 @@ const { width, height } = Dimensions.get("window");
 
 // ขนาดของแผนที่ (สามารถปรับได้ตามขนาดรูปจริง)
 const MAP_WIDTH = width;
-const MAP_HEIGHT = height - 100;
+const MAP_HEIGHT = height - 185;
 
 // Validation Schema
 const locationValidationSchema = Yup.object().shape({

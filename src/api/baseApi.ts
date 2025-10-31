@@ -8,13 +8,21 @@ import type {
 
 // cloudflared tunnel --url https://localhost:7087
 // Get API_BASE_URL from environment variable
-export const API_BASE_URL = "https://among-eyed-thinks-job.trycloudflare.com";
+export const API_BASE_URL =
+  "https://kentucky-dollar-replica-custom.trycloudflare.com";
 
 // Helper function to convert localhost URLs to Cloudflared URLs
 export const convertImageUrl = (url: string | null | undefined): string => {
   if (!url) return "";
-  // Replace localhost URL with Cloudflared URL
-  return url.replace(/http:\/\/localhost:\d+/, API_BASE_URL);
+
+  // If already an absolute URL (not localhost), return as-is
+  if (/^https?:\/\//i.test(url)) return url;
+
+  // Relative path starting with '/'
+  if (url.startsWith("/")) return `${API_BASE_URL}${url}`;
+
+  // Other relative path (no leading slash)
+  return `${API_BASE_URL}/${url}`;
 };
 
 // Custom base query with token handling
@@ -68,6 +76,7 @@ export const baseApi = createApi({
     "Order",
     "Review",
     "Location",
+    "Banner",
   ],
   endpoints: () => ({}),
 });

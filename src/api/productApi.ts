@@ -7,6 +7,16 @@ interface ProductListParams {
   search?: string;
   categoryId?: number;
   sellerId?: number;
+  isActive?: boolean;
+}
+
+// Product Image interface
+interface ProductImageDTO {
+  productImageId: number;
+  productId: number;
+  imageUrl: string;
+  displayOrder: number;
+  isPrimary: boolean;
 }
 
 // Product create/update DTOs
@@ -17,7 +27,8 @@ interface ProductCreateDTO {
   stock: number;
   unit: string;
   categoryId: number;
-  image?: any; // File object
+  image?: any; // Single file object (for backward compatibility)
+  images?: any[]; // Multiple file objects
 }
 
 interface ProductUpdateDTO {
@@ -27,7 +38,9 @@ interface ProductUpdateDTO {
   stock?: number;
   unit?: string;
   categoryId?: number;
-  image?: any; // File object
+  image?: any; // Single file object (for backward compatibility)
+  images?: any[]; // Multiple file objects
+  deleteImageIds?: number[]; // Image IDs to delete
   isActive?: boolean;
 }
 
@@ -159,8 +172,15 @@ export const productApi = baseApi.injectEndpoints({
         formData.append('unit', data.unit);
         formData.append('categoryId', data.categoryId.toString());
 
+        // Support both single image (backward compatibility) and multiple images
         if (data.image) {
           formData.append('image', data.image);
+        }
+
+        if (data.images && data.images.length > 0) {
+          data.images.forEach((image) => {
+            formData.append('images', image);
+          });
         }
 
         return {
@@ -184,7 +204,23 @@ export const productApi = baseApi.injectEndpoints({
         if (data.unit !== undefined) formData.append('unit', data.unit);
         if (data.categoryId !== undefined) formData.append('categoryId', data.categoryId.toString());
         if (data.isActive !== undefined) formData.append('isActive', data.isActive.toString());
+
+        // Support single image for backward compatibility
         if (data.image) formData.append('image', data.image);
+
+        // Support multiple images
+        if (data.images && data.images.length > 0) {
+          data.images.forEach((image) => {
+            formData.append('images', image);
+          });
+        }
+
+        // Support image deletion
+        if (data.deleteImageIds && data.deleteImageIds.length > 0) {
+          data.deleteImageIds.forEach((imageId) => {
+            formData.append('deleteImageIds', imageId.toString());
+          });
+        }
 
         return {
           url: `/api/product/${id}`,
@@ -198,11 +234,38 @@ export const productApi = baseApi.injectEndpoints({
       ],
     }),
 
-    // Delete product (Admin/Seller)
-    deleteProduct: builder.mutation<ResponseData<void>, number>({
-      query: (id) => ({
+    // Delete product (Admin/Seller) - Soft delete by default, hard delete if specified
+    deleteProduct: builder.mutation<ResponseData<void>, { id: number; hardDelete?: boolean }>({
+      query: ({ id, hardDelete = false }) => ({
         url: `/api/product/${id}`,
         method: 'DELETE',
+        params: { hardDelete },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Product', id },
+        { type: 'Product', id: 'LIST' },
+      ],
+    }),
+
+    // Check product usage (Admin/Seller) - see if product can be hard deleted
+    checkProductUsage: builder.query<ResponseData<{
+      productId: number;
+      hasOrders: boolean;
+      orderCount: number;
+      inCartsCount: number;
+      reviewCount: number;
+      canHardDelete: boolean;
+      recommendedAction: string;
+    }>, number>({
+      query: (id) => `/api/product/${id}/usage`,
+      providesTags: (result, error, id) => [{ type: 'Product', id: `USAGE-${id}` }],
+    }),
+
+    // Toggle product active status (Admin/Seller)
+    toggleProductStatus: builder.mutation<ResponseData<void>, number>({
+      query: (id) => ({
+        url: `/api/product/${id}/toggle-status`,
+        method: 'PATCH',
       }),
       invalidatesTags: (result, error, id) => [
         { type: 'Product', id },
@@ -212,6 +275,20 @@ export const productApi = baseApi.injectEndpoints({
   }),
   overrideExisting: false,
 });
+
+// Category DTOs
+interface CategoryCreateDTO {
+  categoryName: string;
+  description?: string;
+  image?: any; // File object
+}
+
+interface CategoryUpdateDTO {
+  categoryName?: string;
+  description?: string;
+  image?: any; // File object
+  isActive?: boolean;
+}
 
 export const categoryApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -225,6 +302,77 @@ export const categoryApi = baseApi.injectEndpoints({
     getActiveCategories: builder.query<ResponseData<Category[]>, void>({
       query: () => '/api/category/active',
       providesTags: [{ type: 'Category', id: 'ACTIVE' }],
+    }),
+
+    // Get category by ID
+    getCategory: builder.query<ResponseData<Category>, number>({
+      query: (id) => `/api/category/${id}`,
+      providesTags: (result, error, id) => [{ type: 'Category', id }],
+    }),
+
+    // Create category (Admin only)
+    createCategory: builder.mutation<ResponseData<Category>, CategoryCreateDTO>({
+      query: (data) => {
+        const formData = new FormData();
+        formData.append('categoryName', data.categoryName);
+        if (data.description) formData.append('description', data.description);
+        if (data.image) formData.append('image', data.image);
+
+        return {
+          url: '/api/category',
+          method: 'POST',
+          body: formData,
+        };
+      },
+      invalidatesTags: [{ type: 'Category', id: 'LIST' }, { type: 'Category', id: 'ACTIVE' }],
+    }),
+
+    // Update category (Admin only)
+    updateCategory: builder.mutation<ResponseData<Category>, { id: number; data: CategoryUpdateDTO }>({
+      query: ({ id, data }) => {
+        const formData = new FormData();
+        if (data.categoryName !== undefined) formData.append('categoryName', data.categoryName);
+        if (data.description !== undefined) formData.append('description', data.description);
+        if (data.isActive !== undefined) formData.append('isActive', data.isActive.toString());
+        if (data.image) formData.append('image', data.image);
+
+        return {
+          url: `/api/category/${id}`,
+          method: 'PUT',
+          body: formData,
+        };
+      },
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Category', id },
+        { type: 'Category', id: 'LIST' },
+        { type: 'Category', id: 'ACTIVE' },
+      ],
+    }),
+
+    // Delete category (Admin only)
+    deleteCategory: builder.mutation<ResponseData<void>, number>({
+      query: (id) => ({
+        url: `/api/category/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'Category', id },
+        { type: 'Category', id: 'LIST' },
+        { type: 'Category', id: 'ACTIVE' },
+      ],
+    }),
+
+    // Toggle category active status (Admin only)
+    toggleCategoryStatus: builder.mutation<ResponseData<void>, number>({
+      query: (id) => ({
+        url: `/api/category/${id}/toggle-status`,
+        method: 'PATCH',
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'Category', id },
+        { type: 'Category', id: 'LIST' },
+        { type: 'Category', id: 'ACTIVE' },
+      ],
     }),
   }),
   overrideExisting: false,
@@ -240,9 +388,17 @@ export const {
   useCreateProductMutation,
   useUpdateProductMutation,
   useDeleteProductMutation,
+  useCheckProductUsageQuery,
+  useLazyCheckProductUsageQuery,
+  useToggleProductStatusMutation,
 } = productApi;
 
 export const {
   useGetCategoriesQuery,
   useGetActiveCategoriesQuery,
+  useGetCategoryQuery,
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+  useDeleteCategoryMutation,
+  useToggleCategoryStatusMutation,
 } = categoryApi;
