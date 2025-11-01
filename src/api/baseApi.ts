@@ -9,7 +9,7 @@ import type {
 // cloudflared tunnel --url https://localhost:7087
 // Get API_BASE_URL from environment variable
 export const API_BASE_URL =
-  "https://kentucky-dollar-replica-custom.trycloudflare.com";
+  "https://organic-meal-locations-copper.trycloudflare.com";
 
 // Helper function to convert localhost URLs to Cloudflared URLs
 export const convertImageUrl = (url: string | null | undefined): string => {

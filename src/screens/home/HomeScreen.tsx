@@ -1,10 +1,26 @@
 import React, { useState, useRef } from "react";
-import { View, Text, FlatList, StyleSheet, RefreshControl, ScrollView, TouchableOpacity, Image, Dimensions } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  Dimensions,
+} from "react-native";
 import { useGetProductsQuery } from "../../api/productApi";
 import { useGetActiveCategoriesQuery } from "../../api/productApi";
 import { useGetActiveBannersQuery, AppBanner } from "../../api/bannerApi";
 import { Product, Category } from "../../types/api.types";
-import { colors, spacing, fontSize, fontWeight, borderRadius } from "../../theme";
+import {
+  colors,
+  spacing,
+  fontSize,
+  fontWeight,
+  borderRadius,
+} from "../../theme";
 import { ProductCard } from "../../components/product/ProductCard";
 import { LoadingState } from "../../components/common/LoadingState";
 import { EmptyState } from "../../components/common/EmptyState";
@@ -63,9 +79,10 @@ const HomeScreen = ({ navigation }: any) => {
   );
 
   const renderCategoryItem = ({ item }: { item: Category }) => {
-    const imageUrl = item.imageUrl && !item.imageUrl.startsWith('http')
-      ? `${API_BASE_URL}${item.imageUrl}`
-      : item.imageUrl;
+    const imageUrl =
+      item.imageUrl && !item.imageUrl.startsWith("http")
+        ? `${API_BASE_URL}${item.imageUrl}`
+        : item.imageUrl;
 
     return (
       <TouchableOpacity
@@ -73,7 +90,10 @@ const HomeScreen = ({ navigation }: any) => {
         onPress={() =>
           navigation.navigate("Products", {
             screen: "CategoryProducts",
-            params: { categoryId: item.categoryId, categoryName: item.categoryName },
+            params: {
+              categoryId: item.categoryId,
+              categoryName: item.categoryName,
+            },
           })
         }
       >
@@ -97,10 +117,7 @@ const HomeScreen = ({ navigation }: any) => {
 
   const renderBannerItem = ({ item }: { item: AppBanner }) => {
     return (
-      <TouchableOpacity
-        style={styles.bannerItem}
-        activeOpacity={0.9}
-      >
+      <TouchableOpacity style={styles.bannerItem} activeOpacity={0.9}>
         <Image
           source={{ uri: item.imageUrl }}
           style={styles.bannerImage}
@@ -172,22 +189,23 @@ const HomeScreen = ({ navigation }: any) => {
               </View>
             )}
 
-            {/* Categories Section */}
             {categories.length > 0 && (
-              <View style={styles.categoriesSection}>
-                <Text style={styles.sectionTitle}>หมวดหมู่สินค้า</Text>
-                <FlatList
-                  horizontal
-                  data={categories}
-                  renderItem={renderCategoryItem}
-                  keyExtractor={(item) => item.categoryId.toString()}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.categoriesList}
-                />
+              <View>
+                <View style={styles.categoriesSection}>
+                  <Text style={styles.sectionTitle}>หมวดหมู่สินค้า</Text>
+                  <FlatList
+                    horizontal
+                    data={categories}
+                    renderItem={renderCategoryItem}
+                    keyExtractor={(item) => item.categoryId.toString()}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.categoriesList}
+                  />
+                </View>
+
+                <Text style={styles.sectionTitle}>สินค้าทั้งหมด</Text>
               </View>
             )}
-            {/* Products Section Title */}
-            <Text style={styles.sectionTitle}>สินค้าทั้งหมด</Text>
           </>
         }
         ListEmptyComponent={
